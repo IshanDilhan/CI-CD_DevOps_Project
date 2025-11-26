@@ -1,0 +1,166 @@
+- name: install docker and config
+  hosts: _development 
+  become: true
+  vars:
+    aws_region: <YOUR-AWS-REGION>  
+    ecr_registry: <YOUR-AWS-ACCOUNT-ID>.dkr.ecr.<YOUR-AWS-REGION>.amazonaws.com
+  tasks:
+    - name: update all packages
+      ansible.builtin.yum:
+        name: '*'
+        state: latest
+
+    - name: Remove docker if installed from CentOS repo
+      ansible.builtin.yum:
+        name:
+          - docker
+          - docker-client
+          - docker-client-latest
+          - docker-common
+          - docker-latest
+          - docker-latest-logrotate
+          - docker-logrotate
+          - docker-engine
+        state: removed
+
+    - name: Install yum utils
+      ansible.builtin.yum:
+        name: 
+          - yum-utils
+          - unzip
+        state: latest
+
+    - name: Add Docker repo
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/centos/docker-ce.repo
+        dest: /etc/yum.repos.d/docker-ce.repo
+
+    - name: Install Docker
+      ansible.builtin.package:
+        name: docker-ce
+        state: latest
+
+    - name: Add user ec2-user to docker group
+      ansible.builtin.user:
+        name: ec2-user
+        groups: docker
+        append: yes
+
+    - name: Start Docker service
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Ensure pip3 is installed
+      ansible.builtin.package:
+        name: python3-pip
+        state: present
+
+    - name: Install docker Python SDK for Ansible
+      ansible.builtin.pip:
+        name: docker
+        executable: pip3
+
+    - name: Wait for Docker socket to be available
+      ansible.builtin.wait_for:
+        path: /var/run/docker.sock
+        state: present
+        timeout: 20
+
+    - name: install aws cli
+      ansible.builtin.get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /home/ec2-user/awscliv2.zip
+
+    - name: unzip zip file
+      ansible.builtin.unarchive:
+        src: /home/ec2-user/awscliv2.zip
+        dest: /home/ec2-user
+        remote_src: True
+
+    - name: run the installer
+      ansible.builtin.command:
+        cmd: "./aws/install"
+        creates: /usr/local/bin/aws
+
+    - name: log in to AWS ec2-user
+      ansible.builtin.shell: |
+        /usr/local/bin/aws ecr get-login-password --region {{ aws_region }} | docker login --username AWS --password-stdin {{ ecr_registry }}
+      register: docker_login_file
+
+    - name: Debug Docker config
+      debug:
+        var: docker_login_file
+
+- name: postgre database config
+  hosts: _ansible_postgresql
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    container_name: postgre
+    image_name: <YOUR-AWS-ACCOUNT-ID>.dkr.ecr.<YOUR-AWS-REGION>.amazonaws.com/project-repo/todo-app:postgre
+  tasks:
+    - name: Remove old postgre container
+      ansible.builtin.shell: docker rm -f {{ container_name }} || true
+
+    - name: Remove old postgre image
+      ansible.builtin.shell: docker rmi -f {{ image_name }} || true
+
+    - name: Launch postgresql docker container via shell
+      ansible.builtin.shell: |
+        docker run -d \
+          --name {{ container_name }} \
+          -p 5432:5432 \
+          -e POSTGRES_PASSWORD=Pp123456789 \
+          -v /db-data:/var/lib/postgresql/data \
+          {{ image_name }}
+      args:
+        executable: /bin/bash
+
+- name: Nodejs Server configuration
+  hosts: _ansible_nodejs
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    container_name: nodejs
+    image_name: <YOUR-AWS-ACCOUNT-ID>.dkr.ecr.<YOUR-AWS-REGION>.amazonaws.com/project-repo/todo-app:nodejs
+  tasks:
+    - name: Remove old nodejs container
+      ansible.builtin.shell: docker rm -f {{ container_name }} || true
+
+    - name: Remove old nodejs image
+      ansible.builtin.shell: docker rmi -f {{ image_name }} || true
+
+    - name: Launch nodejs docker container via shell
+      ansible.builtin.shell: |
+        docker run -d \
+          --name {{ container_name }} \
+          -p 5000:5000 \
+          {{ image_name }}
+      args:
+        executable: /bin/bash
+
+- name: React UI Server configuration
+  hosts: _ansible_react
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    container_name: react
+    image_name: <YOUR-AWS-ACCOUNT-ID>.dkr.ecr.<YOUR-AWS-REGION>.amazonaws.com/project-repo/todo-app:react
+  tasks:
+    - name: Remove old react container
+      ansible.builtin.shell: docker rm -f {{ container_name }} || true
+
+    - name: Remove old react image
+      ansible.builtin.shell: docker rmi -f {{ image_name }} || true
+
+    - name: Launch react docker container via shell
+      ansible.builtin.shell: |
+        docker run -d \
+          --name {{ container_name }} \
+          -p 3000:3000 \
+          -e NODE_OPTIONS=--openssl-legacy-provider \
+          {{ image_name }}
+      args:
+        executable: /bin/bash
