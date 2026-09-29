@@ -1,5 +1,5 @@
 import React, { Fragment, useState } from "react";
-const BASE_URL = process.env.REACT_APP_BASE_URL;
+const BASE_URL = "/";
 
 const EditTodo = ({ todo }) => {
   const [description, setDescription] = useState(todo.description);

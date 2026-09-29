@@ -1,7 +1,7 @@
 import React, { Fragment, useEffect, useState } from "react";
 import EditTodo from "./EditTodo";
 import "./style.css";
-const BASE_URL = process.env.REACT_APP_BASE_URL;
+const BASE_URL = "/";
 
 const ListTodo = () => {
   const [todos, setTodos] = useState([]);

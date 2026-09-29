@@ -35,3 +35,39 @@ override.tf.json
 # Ignore CLI configuration files
 .terraformrc
 terraform.rc
+
+# Local configuration and generated files
+.env
+.env.*
+!.env.example
+**/node_modules/
+**/build/
+.local/
+*.pem
+*.key
+*.retry
+
+# Test/build caches and local operational state
+coverage/
+.nyc_output/
+*.log
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+.aws/
+.ssh/
+.docker/
+jenkins_home/
+secrets/
+credentials.xml
+secret.key*
+identity.key.enc
+id_rsa*
+id_ed25519*
+*.p12
+*.pfx
+*.jks
+*.tfplan
+ansible/inventory.private.ini

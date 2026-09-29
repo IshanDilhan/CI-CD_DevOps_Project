@@ -1,8 +1,6 @@
 import React, { Fragment, useState } from "react";
 import "./style.css";
-const BASE_URL = process.env.REACT_APP_BASE_URL;
-
-console.log(BASE_URL);
+const BASE_URL = "/";
 
 const InputTodo = () => {
   const [description, setDescription] = useState("");

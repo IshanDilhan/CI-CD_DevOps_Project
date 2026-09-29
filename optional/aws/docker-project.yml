@@ -112,7 +112,7 @@
         docker run -d \
           --name {{ container_name }} \
           -p 5432:5432 \
-          -e POSTGRES_PASSWORD=Pp123456789 \
+          -e POSTGRES_PASSWORD={{ lookup('env', 'DB_PASSWORD') | mandatory }} \
           -v /db-data:/var/lib/postgresql/data \
           {{ image_name }}
       args:

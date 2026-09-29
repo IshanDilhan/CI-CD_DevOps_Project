@@ -16,7 +16,7 @@ provider "aws" {
 }
 
 provider "github" {
-  token = "<YOUR-GITHUB-TOKEN>"
+  # Uses GITHUB_TOKEN from the environment
 }
 
 resource "github_repository" "todo-app" {
