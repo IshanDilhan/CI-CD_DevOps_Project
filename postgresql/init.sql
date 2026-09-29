@@ -1,8 +1,4 @@
-CREATE DATABASE dbtodo;
-
-\c dbtodo;
-
-CREATE TABLE todo(
+CREATE TABLE IF NOT EXISTS todo (
     todo_id SERIAL PRIMARY KEY,
-    description VARCHAR(255)
+    description VARCHAR(255) NOT NULL
 );

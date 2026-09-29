@@ -1,0 +1,59 @@
+name: devops-lab
+services:
+  jenkins:
+    build: ./jenkins
+    user: "0:0"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [lab]
+    restart: unless-stopped
+  registry:
+    image: registry:2.8.3
+    ports:
+      - "127.0.0.1:5001:5000"
+    volumes:
+      - registry_data:/var/lib/registry
+    networks: [lab]
+    restart: unless-stopped
+  db:
+    profiles: [app]
+    image: postgres:16-bookworm
+    environment:
+      POSTGRES_USER: todo
+      POSTGRES_DB: todo
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
+    volumes:
+      - standalone_data:/var/lib/postgresql/data
+      - ./postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U todo -d todo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [lab]
+  app:
+    profiles: [app]
+    build: .
+    image: ${APP_IMAGE:-devops-todo:local}
+    environment:
+      DB_USER: todo
+      DB_NAME: todo
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      DB_HOST: db
+      DB_PORT: "5432"
+    ports:
+      - "127.0.0.1:3000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [lab]
+volumes:
+  jenkins_home:
+  registry_data:
+  standalone_data:
+networks:
+  lab:
+    name: devops-lab
