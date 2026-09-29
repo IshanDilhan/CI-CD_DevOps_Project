@@ -1,0 +1,136 @@
+---
+- name: Deploy the versioned todo application
+  hosts: docker_hosts
+  gather_facts: false
+  vars:
+    app_image: "{{ lookup('env', 'APP_IMAGE') }}"
+    db_password: "{{ lookup('env', 'DB_PASSWORD') }}"
+    registry_url: "{{ lookup('env', 'REGISTRY') }}"
+    registry_user: "{{ lookup('env', 'REGISTRY_USER') }}"
+    registry_password: "{{ lookup('env', 'REGISTRY_PASSWORD') }}"
+    bind_address: "127.0.0.1"
+    app_port: 3000
+    health_url: "http://todo-app:5000/health"
+  tasks:
+    - name: Require a versioned image and database password
+      ansible.builtin.assert:
+        that:
+          - app_image | length > 0
+          - db_password | length >= 16
+        fail_msg: Supply APP_IMAGE and a DB_PASSWORD of at least 16 characters.
+      no_log: true
+
+    - name: Verify Docker is installed and accessible
+      community.docker.docker_host_info:
+
+    - name: Authenticate for a private registry when configured
+      community.docker.docker_login:
+        registry_url: "{{ registry_url }}"
+        username: "{{ registry_user }}"
+        password: "{{ registry_password }}"
+      when: registry_user | length > 0
+      no_log: true
+
+    - name: Pull image before touching the running application
+      community.docker.docker_image:
+        name: "{{ app_image }}"
+        source: pull
+        force_source: true
+
+    - name: Ensure application network exists
+      community.docker.docker_network:
+        name: devops-lab
+
+    - name: Preserve database data across releases
+      community.docker.docker_volume:
+        name: todo-data
+
+    - name: Start PostgreSQL without publishing its port
+      community.docker.docker_container:
+        name: todo-db
+        image: postgres:16-bookworm
+        state: started
+        restart_policy: unless-stopped
+        networks:
+          - name: devops-lab
+        volumes:
+          - todo-data:/var/lib/postgresql/data
+        env:
+          POSTGRES_USER: todo
+          POSTGRES_DB: todo
+          POSTGRES_PASSWORD: "{{ db_password }}"
+        healthcheck:
+          test: [CMD-SHELL, "pg_isready -U todo -d todo"]
+          interval: 5s
+          timeout: 3s
+          retries: 20
+      no_log: true
+
+    - name: Wait for PostgreSQL readiness
+      community.docker.docker_container_info:
+        name: todo-db
+      register: database
+      until: database.container.State.Health.Status == 'healthy'
+      retries: 30
+      delay: 2
+      no_log: true
+
+    - name: Initialize table only if missing
+      community.docker.docker_container_exec:
+        container: todo-db
+        argv: [psql, -U, todo, -d, todo, -v, ON_ERROR_STOP=1, -c, "CREATE TABLE IF NOT EXISTS todo (todo_id SERIAL PRIMARY KEY, description VARCHAR(255) NOT NULL);"]
+      register: schema
+      changed_when: "'already exists' not in schema.stderr"
+      failed_when: schema.rc != 0
+
+    - name: Inspect current release for rollback information
+      community.docker.docker_container_info:
+        name: todo-app
+      register: previous
+      no_log: true
+
+    - name: Print only the previous image reference
+      ansible.builtin.debug:
+        msg: "Previous image: {{ previous.container.Config.Image if previous.exists else 'none (first deployment)' }}"
+
+    - name: Replace the application only when image or configuration changes
+      community.docker.docker_container:
+        name: todo-app
+        image: "{{ app_image }}"
+        state: started
+        restart_policy: unless-stopped
+        stop_timeout: 15
+        networks:
+          - name: devops-lab
+        published_ports:
+          - "{{ bind_address }}:{{ app_port }}:5000"
+        env:
+          NODE_ENV: production
+          SERVER_PORT: "5000"
+          DB_HOST: todo-db
+          DB_PORT: "5432"
+          DB_USER: todo
+          DB_NAME: todo
+          DB_PASSWORD: "{{ db_password }}"
+        read_only: true
+        cap_drop: [ALL]
+        security_opts: ["no-new-privileges:true"]
+      no_log: true
+
+    - name: Wait for the application Docker health check
+      community.docker.docker_container_info:
+        name: todo-app
+      register: application
+      until: application.container.State.Health.Status == 'healthy'
+      retries: 30
+      delay: 3
+      no_log: true
+
+    - name: Verify HTTP and database readiness from the deployment controller
+      ansible.builtin.uri:
+        url: "{{ health_url }}"
+        status_code: 200
+      register: health
+      until: health.status == 200
+      retries: 10
+      delay: 3
