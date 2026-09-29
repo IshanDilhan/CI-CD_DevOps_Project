@@ -1,127 +1,312 @@
-# CI/CD Pipeline for Full-Stack Application
-
-This project outlines a comprehensive DevOps solution for deploying a full-stack web application, comprising PostgreSQL, NodeJS, and React components, onto AWS Cloud infrastructure using a Jenkins-driven CI/CD pipeline. The core objective is to automate the entire application lifecycle, from infrastructure provisioning to application deployment and management.
+# DevOps Todo Lab
 
 ## Project Overview
 
-The architecture leverages a Jenkins server acting as both the CI/CD orchestrator and an Ansible control node. The application components (PostgreSQL, NodeJS, React) are deployed as Docker containers on three separate EC2 instances, which serve as managed nodes.
+A small Jenkins → Docker registry → Ansible delivery lab around an existing React,
+Express and PostgreSQL todo application. The portfolio contribution is the DevOps
+implementation: repeatable builds, tests, image versioning, secret handling,
+deployment and operational documentation. Application provenance and existing
+license metadata are preserved in [ATTRIBUTION.md](ATTRIBUTION.md).
 
-### Key Technologies and Concepts Covered:
+No AWS account, Kubernetes, or paid infrastructure is required. One application
+image contains the compiled React UI and Express API; PostgreSQL runs separately.
+The local demo uses the Linux Docker engine supplied by Docker Desktop or Linux.
 
-*   **Jenkins Pipeline:** Orchestrating the entire CI/CD workflow, including infrastructure creation, Docker image building, pushing to ECR, and application deployment.
-*   **Terraform:** Infrastructure as Code (IaC) for provisioning AWS resources such as EC2 instances, S3 buckets for backend state, IAM roles and policies, and security groups.
-*   **Ansible:** Configuration management and application deployment on EC2 instances, including Docker installation and container orchestration. Utilizes dynamic inventory for AWS EC2 instances.
-*   **Docker:** Containerization of the PostgreSQL database, NodeJS backend, and React frontend for consistent environments and simplified deployment.
-*   **AWS ECR (Elastic Container Registry):** Secure storage and management of Docker images.
-*   **AWS IAM (Identity and Access Management):** Defining roles and policies for secure access to AWS resources.
-*   **AWS EC2:** Virtual servers hosting the Jenkins server and application components.
-*   **AWS S3:** Used for Terraform remote state management, ensuring collaborative and consistent infrastructure deployments.
-*   **AWS Systems Manager Parameter Store (SSM):** Secure storage and retrieval of sensitive application parameters like database credentials.
-*   **GitHub:** Version control for all project code and configuration files, integrated with Jenkins for triggering pipelines.
+**Validation status:** See [VALIDATION.md](VALIDATION.md). Application tests and
+build have been run; Docker/Jenkins/Ansible execution requires a Docker-capable
+machine and has not been verified in the editing environment.
 
-## Architecture and Workflow
+## Architecture
 
-1.  **Infrastructure Provisioning (Terraform):**
-    *   A dedicated Terraform project (`create-jenkins-server/install-jenkins.tf`) provisions the Jenkins server on AWS. This server also acts as the Ansible control node.
-    *   Another Terraform configuration (`main.tf`) sets up three EC2 instances to host the PostgreSQL, NodeJS, and React Docker containers, along with necessary security groups and IAM roles.
-    *   Terraform state is managed remotely in an S3 bucket for collaboration and state locking.
-
-2.  **Jenkins Pipeline Configuration (`Jenkinsfile`):**
-    *   The `Jenkinsfile` defines a declarative pipeline with several stages:
-        *   **Create Infrastructure for the App:** Executes `terraform init` and `terraform apply` to provision the application's AWS infrastructure.
-        *   **Create ECR Repo:** Ensures an ECR repository exists for Docker images, creating one if it doesn't.
-        *   **Build App Docker Image:** Builds Docker images for PostgreSQL, NodeJS, and React components on the Jenkins server. It also dynamically injects environment variables (like database host and password from SSM Parameter Store) into the application's `.env` files.
-        *   **Push Image to ECR Repo:** Authenticates with ECR and pushes the built Docker images to the ECR repository.
-        *   **Wait for the Instance:** Waits for the provisioned EC2 instances to be in a running state and pass status checks before proceeding.
-        *   **Deploy the App:** Executes an Ansible playbook (`docker-project.yml`) to deploy the Docker containers on the respective EC2 instances.
-        *   **Destroy the infrastructure:** A controlled destruction of all AWS resources created by Terraform, triggered by user approval. This also cleans up Docker images and ECR repositories.
-    *   **Post-Actions:** Includes steps for cleaning up local Docker images on the Jenkins server and destroying infrastructure/ECR repositories in case of pipeline failures.
-
-3.  **Ansible Deployment (`docker-project.yml`):**
-    *   An Ansible playbook automates the installation of Docker on all managed nodes.
-    *   It then logs into AWS ECR, pulls the appropriate Docker images, and launches the PostgreSQL, NodeJS, and React containers on their designated EC2 instances.
-    *   Dynamic inventory (`inventory_aws_ec2.yml`) is used to discover and manage AWS EC2 instances.
-
-## Setup and Execution
-
-### Initial Setup (Jenkins Server and GitHub Repository)
-
-1.  **Provision Jenkins Server:**
-    *   Navigate to the `create-jenkins-server` directory.
-    *   Ensure your `.pem` key file is in this directory.
-    *   Run `terraform init` and `terraform apply --auto-approve` to deploy the Jenkins server and associated AWS resources (S3 backend, GitHub repository).
-2.  **Clone Project Repository:**
-    *   Create a working directory for your project.
-    *   Clone the private GitHub repository created by Terraform into your working directory.
-    *   Copy the application code (`nodejs`, `react`, `postgresql` directories), `Jenkinsfile`, `docker-project.yml`, `ansible.cfg`, `inventory_aws_ec2.yml`, `node-env-template`, and `react-env-template` into the cloned repository.
-
-### Jenkins Configuration
-
-1.  **Access Jenkins Dashboard:** Open `http://<JENKINS-SERVER-PUBLIC-IP>:8080` in your browser.
-2.  **Retrieve Admin Password:** SSH into the Jenkins server and run `sudo cat /var/lib/jenkins/secrets/initialAdminPassword`.
-3.  **Install Plugins:** In `Manage Jenkins > Plugins`, install "Ansible" and "Terraform" plugins.
-4.  **Configure Tools:** In `Manage Jenkins > Tools`:
-    *   **Ansible Installation:** Name: `ansible`, Path: `/usr/bin/` (verify with `which ansible` on Jenkins server).
-    *   **Terraform Installation:** Name: `terraform`, Path: `/usr/local/bin/` (verify with `which terraform` on Jenkins server).
-5.  **Configure Credentials:** In `Manage Jenkins > Credentials > Global > Add Credentials`:
-    *   **GitHub Token:** Kind: `Username with password`. Username: `<YOUR-GITHUB-USERNAME>`, Password: `<YOUR-GITHUB-TOKEN>`.
-    *   **AWS SSH Key:** Kind: `SSH Username with private key`. ID: `<YOUR-KEY-PEM-NAME>`, Description: `ansible`, Username: `ec2-user`, Private Key: Enter the content of your `<YOUR-KEY-PEM>` file.
-6.  **Configure AWS SSM Parameter Store:**
-    *   Go to `AWS Management Console > Systems Manager > Parameter Store`.
-    *   Create parameters:
-        *   Name: `db_name`, Value: `dbtodo`
-        *   Name: `db_password`, Value: `<YOUR-DB-PASSWORD>`
-
-### Prepare Automation Files (Terraform, Ansible, Jenkins)
-
-The following files contain sensitive information that needs to be replaced with your specific values or masked with placeholders as indicated in the task. These modifications have already been applied to the code in this project, replacing actual values with `<YOUR-...>` placeholders.
-
-*   `main.tf`
-*   `create-jenkins-server/install-jenkins.tf`
-*   `create-jenkins-server/variables.tf`
-*   `Jenkinsfile`
-*   `inventory_aws_ec2.yml`
-*   `nodejs/server/.env`
-*   `react/client/.env`
-
-### Push to GitHub
-
-Commit and push all project files (after making necessary sensitive information replacements) to your GitHub repository.
-
-```bash
-git add .
-git commit -m "Initial project setup and CI/CD pipeline"
-git push
+```text
+Git
+ ↓
+Jenkins (checkout and npm dependencies)
+ ↓
+Test (API and UI)
+ ↓
+Build React → Docker Build → versioned tag
+ ↓
+Container Registry (local localhost:5001, or authenticated TLS registry)
+ ↓
+Ansible
+ ↓
+Linux/Docker Host
+ ↓
+Application :3000 → PostgreSQL (private network, persistent volume)
 ```
 
-### Create Jenkins Pipeline
+Jenkins, registry, app and database share `devops-lab`. The local Ansible inventory
+uses `connection=local` inside Jenkins and controls the host engine through the
+Docker socket. This demonstrates deployment to a Linux Docker engine, **not SSH
+or a separate VM**. A separate inventory example documents the SSH extension.
+Only one lab/job should deploy these fixed container names at a time.
 
-1.  **New Jenkins Item:** From the Jenkins Dashboard, click `New Item`.
-2.  **Configure Pipeline:**
-    *   Enter a name (e.g., `todo-app-pipeline`).
-    *   Select `Pipeline` as the type.
-    *   In the Pipeline section, choose `Pipeline script from SCM`.
-    *   SCM: `Git`.
-    *   Repository URL: `<YOUR-GITHUB-REPO-URL>`.
-    *   Credentials: Select the GitHub credential you created earlier.
-    *   Script Path: `Jenkinsfile`.
-3.  **Save and Build:** Save the pipeline configuration and click `Build Now` to initiate the CI/CD process. Monitor the pipeline stages for progress and any issues.
+## Technologies
 
-## Post-Deployment
+Jenkins declarative Pipeline, Docker Engine and Compose v2, Ansible Core and
+community.docker, Linux, Git, OCI container registry, Node 22, React 17, esbuild,
+Express and PostgreSQL 16. npm lockfiles are used for repeatable dependency installs.
 
-*   Upon successful deployment, you should be able to access the React frontend at `http://<REACT-SERVER-PUBLIC-IP>:3000`.
-*   **Cleanup:** After completing your work, remember to destroy all provisioned AWS resources using the `create-jenkins-server` Terraform project to avoid unnecessary costs.
-    *   Initiate the "Destroy the infrastructure" stage in your Jenkins pipeline.
-    *   Alternatively, navigate to `create-jenkins-server` and run `terraform destroy --auto-approve`.
+## Deployment
+
+### Fastest complete pipeline demo
+
+Prerequisites: Git, Docker Desktop with **Linux containers** (or Linux Docker
+Engine), Compose v2, internet access, and enough memory for Jenkins (4 GB or more
+available to Docker is a sensible lab starting point). Run from repository root:
+
+```sh
+docker compose up -d --build
+docker compose logs --tail=50 jenkins
+docker compose exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+1. Open http://localhost:8080, unlock Jenkins using the displayed initial password,
+   complete the setup wizard, and create your own administrator account. The image
+   preinstalls Pipeline, Git, Credentials Binding, Timestamper and Stage View plugins.
+2. Add a **Secret text** credential with ID `todo-db-password`. Choose a unique
+   password of at least 16 characters. Keep the same value across deployments;
+   changing the environment value does not rotate an existing PostgreSQL password.
+3. Commit these changes to **your own Git repository**, then make them reachable
+   from Jenkins. Create a Pipeline job using **Pipeline script from SCM → Git**;
+   supply your repository URL, actual branch, and script path `Jenkinsfile`.
+   For a private Git repository, select a Jenkins Git credential. The existing
+   `origin` points to the upstream author's repository: do not push there.
+4. Build the job. On its first run, parameter defaults use `localhost:5001` and
+   `devops-todo`. Subsequent runs offer **Build with Parameters**. Leave `DEPLOY_TAG`
+   empty for a new release. No registry credentials are needed for this local demo.
+5. After the pipeline succeeds, open http://localhost:3000. If Node is installed,
+   `node scripts/smoke.mjs` verifies HTTP, DB readiness, and a create/update/delete
+   round trip. The pipeline runs this check automatically from Jenkins.
+
+The Docker **daemon** resolves `localhost:5001` while pulling/pushing, so it reaches
+its host's published registry port. The Jenkins container calls the app by Docker
+DNS (`todo-app:5000`). Do not replace the registry value with `registry:5000`:
+that container DNS name is not necessarily resolvable by the host Docker daemon.
+The local registry uses HTTP and has no authentication; never expose it publicly.
+If the engine rejects HTTP, add `localhost:5001` to Docker Engine's
+`insecure-registries` setting, preserving existing settings, and restart Docker.
+Only do this for the local loopback lab registry.
+
+### App-only preview (before configuring Jenkins)
+
+```sh
+# Copy .env.example to .env and fill DB_PASSWORD with a unique local password.
+# PowerShell: Copy-Item .env.example .env
+# Linux/macOS: cp .env.example .env
+docker compose --profile app up -d --build db app
+node scripts/smoke.mjs
+```
+
+This uses a separate standalone database volume. Before deploying the pipeline
+version, release port 3000 with `docker compose --profile app stop app db`.
+The pipeline's `todo-data` database volume is separate; data is not copied between
+these two demonstration modes.
+
+### Authenticated registry
+
+Create the repository in your registry. Add a Jenkins **Username with password**
+credential (use a scoped registry token as password). Set `REGISTRY_CREDENTIALS_ID`
+to its ID, `REGISTRY` to `docker.io` or your TLS registry hostname, and
+`IMAGE_REPOSITORY` to e.g. `your-user/devops-todo`. Login uses stdin and a temporary
+Docker config under ignored `.local`; post-build cleanup removes the auth file.
+The local Ansible process inherits `DOCKER_CONFIG` for authenticated pulls.
+Tags are `<build-number>-<12-character-Git-SHA>` and are not reused by this job.
+Configure registry immutability if you need protection against external overwrites.
+
+### Optional SSH/Linux deployment
+
+Install Docker Engine and Python 3 with `requests` on the target; grant the deploy
+user Docker access (equivalent to root). Install Ansible and the pinned collection
+from `jenkins/requirements.yml` on your Linux controller. Copy the example inventory,
+replace its documentation IP/user, verify the SSH fingerprint, and use a private key
+through ssh-agent. Export `APP_IMAGE`, `DB_PASSWORD`, and, for private registries,
+`REGISTRY`, `REGISTRY_USER`, `REGISTRY_PASSWORD` through your secret manager/session.
+Use a registry accessible to the remote host; its localhost is not your laptop.
+
+```sh
+ansible-galaxy collection install -r jenkins/requirements.yml
+ansible -i ansible/inventory.ssh.example.ini docker_hosts -m ping
+ansible-playbook -i ansible/inventory.ssh.example.ini ansible/deploy.yml \
+  -e health_url=http://127.0.0.1:3000/health
+```
+
+The URI task runs on the target, so loopback is appropriate for SSH deployment.
+Default app binding stays on loopback. Use an SSH tunnel to view it securely:
+`ssh -L 3000:127.0.0.1:3000 deploy@YOUR_HOST`. Ansible verifies Docker and fails
+clearly if unavailable; it does not install or replace a host's Docker engine.
+The supplied Jenkins job targets the local demo; remote Jenkins SSH credential
+binding/inventory selection is an extension, not implemented in that job.
+Historical AWS/Terraform files are under `optional/aws/`; read its README before use.
+
+## CI/CD Pipeline
+
+| Stage | Purpose and failure behavior |
+|---|---|
+| Checkout | Read SCM, validate image parameters, derive build/Git tag. |
+| Install Dependencies | `npm ci` for server and frontend; lockfile mismatch fails. |
+| Test | Node test runner: HTTP/API behavior and server-rendered React UI. |
+| Build | Compile and minify React; no development server in production. |
+| Docker Build | Multi-stage build; only runtime dependencies and static UI ship. |
+| Docker Tag | Apply the full registry/repository/version reference. |
+| Registry Login | Optional credential binding; local registry skips authentication. |
+| Docker Push | Publish the version; failure prevents deployment. |
+| Deploy with Ansible | Syntax check, pull, ensure DB/schema, converge app, health checks. |
+| Health Check | HTTP readiness plus database CRUD smoke check; archive release.txt. |
+
+Failures stop subsequent stages. A 30-minute timeout bounds each job. Concurrent
+runs of this job are disabled. No infrastructure is destroyed on failure and no
+broad image pruning occurs. Old release images remain available for rollback.
+A rollback run skips dependency/test/build/tag/push stages and deploys the chosen
+existing version; health and CRUD checks still run.
+
+## Ansible
+
+`ansible/inventory.ini` identifies the local Docker host connection.
+`ansible/deploy.yml` contains ordered tasks; roles are unnecessary for one service.
+The collection's `docker_image`, `docker_network`, `docker_volume`,
+`docker_container`, `docker_container_info`, and `docker_container_exec` modules
+manage Docker resources. `assert` checks inputs; `uri` checks HTTP readiness.
+
+Flow: validate secrets → verify Docker → optional registry login → pull first →
+ensure network/volume → start DB → wait for DB → create table if missing → log
+previous image only → gracefully replace changed app → Docker health → HTTP health.
+
+An unchanged image/config should not recreate the app. The schema operation uses
+`IF NOT EXISTS`; volume and network tasks converge existing resources. Pulling is
+performed each time and can report changed even if the digest is unchanged, so
+this is practical convergence rather than a promise of a completely green recap.
+Container replacement has brief downtime. A pull failure leaves the current app
+untouched; a failure after replacement can leave the new release unhealthy until
+manual rollback. This is not a zero-downtime or automatically rolling-back system.
+Module behavior reference: [community.docker docker_container](https://docs.ansible.com/projects/ansible/latest/collections/community/docker/docker_container_module.html).
+
+## Docker
+
+An **image** is a packaged filesystem/runtime; a **container** is its running
+instance. The registry stores tagged images. The root `Dockerfile` builds the UI
+in one stage and copies it into a slim Node runtime with production dependencies.
+The app runs as the `node` user; its deployment drops capabilities and uses a
+read-only root filesystem. PostgreSQL persists data in `todo-data` outside the app.
+No custom database image is needed.
+
+Runtime variables: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_NAME`, `DB_PASSWORD`, and
+optional `SERVER_PORT` (5000). `/health` verifies access to the todo table; database
+or schema failure produces 503. Browser API requests are same-origin, so promotion
+does not require rebuilding public URLs. No secret belongs in React JavaScript.
+
+## Rollback
+
+1. Open the previous **successful** Jenkins build and read its archived `release.txt`.
+2. Run **Build with Parameters** using the same registry/repository and put only
+   its tag (e.g. `12-a1b2c3d4e5f6`) in `DEPLOY_TAG`.
+3. Jenkins pulls that image and Ansible replaces the failed release, then verifies
+   health and CRUD. Confirm http://localhost:3000.
+
+The playbook also prints the previous image before replacement. Rollback is manual;
+the pipeline does not auto-revert. Do not prune known-good tags or the registry
+volume. Database contents persist, and rollback does not restore data or undo
+schema migrations. This lab only creates one compatible table; future migrations
+require a compatibility and backup strategy. Use one job to own this environment.
+
+## Security and scope
+
+- `.env`, private keys, local tooling and generated output are ignored; `.dockerignore`
+  keeps them out of build context. Previously tracked placeholder `.env` files were removed.
+- Jenkins stores the DB secret and optional Git/registry credentials. Secrets are
+  not interpolated into Groovy commands or echoed; Ansible sensitive tasks use `no_log`.
+  Docker administrators can inspect runtime environment values: this is a lab,
+  not a secret-isolation boundary. Protect Jenkins home and Docker volumes.
+- Jenkins runs as root with the host Docker socket for this local shortcut. It is
+  **host-root-equivalent**. Use only trusted repositories/jobs; never run untrusted PRs.
+  Production should use an isolated agent/engine and restricted deployment identity.
+- No container uses `privileged`. Published lab ports bind to loopback; PostgreSQL
+  has no published port. The app itself has no authentication; do not expose it as-is.
+- The upstream embedded database password was removed, but remains in Git history.
+  Rotate it wherever it was used. History was not rewritten and no new license invented.
+- Existing UI Bootstrap/jQuery assets require CDN access. Upstream dependency age
+  and production hardening are outside this small lab; review before public deployment.
 
 ## Troubleshooting
 
-*   **Jenkins Server Disk Space:** If Jenkins becomes unresponsive due to full disk space, SSH into the server and run the following commands to free up space:
+| Symptom | Check/action |
+|---|---|
+| Jenkins build fails | Read the first failed stage; confirm credentials ID, branch, Docker socket and plugin installation. |
+| Tests fail | Run `npm ci` then `npm test` in the relevant package; inspect the failed assertion. |
+| Docker build fails | Check download/network errors, lockfiles and root build context; use `docker build --progress=plain -t devops-todo:debug .`. |
+| Registry push fails | Check registry logs, hostname, namespace/token scope and local HTTP setting. |
+| Ansible SSH fails | Confirm inventory host/user, verified known_hosts, key, network access and Python; use `ansible ... -m ping`. |
+| Container keeps restarting | Read `docker logs todo-app` and `docker logs todo-db`; check DB settings and persisted password. |
+| Application inaccessible | Confirm 3000 is free, app is running and localhost is the Docker host; stop standalone preview before pipeline deploy. |
+| Health check fails | Query `/health`; verify DB readiness/table/password. A running process alone is not readiness. |
+| DB password changed | Restore the existing credential or rotate the DB role password deliberately; changing an env var does not update stored credentials. |
 
-    ```bash
-    df -h                                  # Check disk usage
-    sudo docker system prune -a --volumes -f # Clear all Docker data
-    cd /var/lib/jenkins/workspace          # Navigate to Jenkins workspace
-    sudo rm -rf *                          # Clear Jenkins workspace content
-    sudo sync; echo 3 | sudo tee /proc/sys/vm/drop_caches # Clear cache
-    ```
+Five useful commands:
+
+```sh
+docker compose logs --tail=100 jenkins registry
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker logs --tail=100 todo-app
+docker inspect --format '{{json .State.Health}}' todo-app
+curl --fail http://localhost:3000/health
+```
+
+PowerShell users can use `curl.exe` to avoid the older PowerShell curl alias.
+`docker compose down` stops Jenkins/registry but keeps their volumes. Containers
+created by Ansible are managed separately; stop them with
+`docker stop todo-app todo-db`. Do not use volume deletion as routine cleanup.
+
+## Interview Architecture Explanation
+
+I built a local CI/CD lab around an existing React, Express and PostgreSQL todo
+application. Jenkins checks out Git, installs locked dependencies, runs API and UI
+tests, and compiles the frontend. A multi-stage Dockerfile packages the frontend
+and API into one non-root image. Jenkins tags it with the build number and Git
+commit and pushes it to a registry. Ansible pulls that exact release before changing
+the running app, preserves the PostgreSQL volume, and replaces the container only
+when needed. Readiness checks query the database, and the pipeline runs a CRUD smoke
+test. Secrets come from Jenkins credentials. For rollback I redeploy a known-good
+tag; it is manual and preserves data. The local shortcut uses the host Docker
+socket, so Jenkins has host-level authority. A real deployment would isolate that
+agent and use authenticated TLS registry access and SSH to a Linux host.
+
+## Interview Questions
+
+See [INTERVIEW_NOTES.md](INTERVIEW_NOTES.md) for the same architecture, important
+files, troubleshooting commands, and 15 implementation-specific questions and answers.
+
+
+
+1. **What did you build versus reuse?** I reused the credited todo application and
+   added the local DevOps workflow, tests, runtime fixes, packaging and documentation.
+2. **Why one application image?** Express serves the compiled React UI and API from
+   the same origin. This removes a frontend runtime and public-IP build configuration.
+3. **What triggers the pipeline?** Build Now/Build with Parameters after SCM setup.
+   Automatic webhooks or polling are not configured by these files.
+4. **What do tests prove?** API tests use real HTTP with stubbed DB queries; the UI
+   test server-renders React. The deployment smoke test verifies real database CRUD.
+5. **Why npm ci?** It installs the committed dependency graph and rejects package/lock
+   mismatches, making CI dependencies more repeatable than unconstrained installs.
+6. **Why a multi-stage Dockerfile?** Build tooling stays in the build stage; the final
+   image contains only Node, runtime dependencies, app code and the compiled frontend.
+7. **How are releases identified?** A build number plus a 12-character Git SHA. The
+   successful job archives the complete image reference in release.txt.
+8. **Why use a registry locally?** It demonstrates actual tag/push/pull and separates
+   building from deployment. The loopback HTTP registry needs no paid account.
+9. **Where are secrets stored?** Jenkins credentials, temporarily bound as environment
+   variables. Docker admins can still inspect runtime env values; images contain none.
+10. **What is the inventory?** A list of managed hosts and connection settings. The
+    default is local to Jenkins; the optional example uses SSH with verified host keys.
+11. **What is idempotent here?** Network/volume creation and container convergence.
+    Same image/config should not recreate the app; forced pulls may still report changed.
+12. **How does health differ from container running?** /health queries the todo table;
+    it returns 503 when the database/schema is unavailable, even if Node is alive.
+13. **How does rollback work?** Supply a previous successful tag in DEPLOY_TAG. Build
+    and push are skipped; Ansible deploys it and repeats health/CRUD checks. No auto-revert.
+14. **What happens to data or a failed release?** The named DB volume survives app
+    replacement. Pull failures leave the old app; post-replacement failures need manual
+    rollback. Rollback does not undo schema changes or restore deleted data.
+15. **What would change for production?** Isolate CI agents from the host socket,
+    enforce registry TLS/auth/immutability, add app auth/TLS, restrict networking,
+    maintain dependencies, back up DB data, and plan migrations and availability.
