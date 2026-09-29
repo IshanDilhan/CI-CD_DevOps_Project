@@ -1,131 +1,103 @@
-pipeline{
+pipeline {
     agent any
-    tools {
-            ansible 'ansible'
-            terraform 'terraform'
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+        timeout(time: 30, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
     }
-
+    parameters {
+        string(name: 'REGISTRY', defaultValue: 'localhost:5001', description: 'Registry host:port, no scheme. Local registry needs no credentials.')
+        string(name: 'IMAGE_REPOSITORY', defaultValue: 'devops-todo', description: 'For Docker Hub use your-user/devops-todo.')
+        string(name: 'REGISTRY_CREDENTIALS_ID', defaultValue: '', description: 'Optional Jenkins username/password credential ID.')
+        string(name: 'DEPLOY_TAG', defaultValue: '', description: 'Empty builds a release; a known-good tag redeploys it for manual rollback.')
+    }
     environment {
-        PATH=sh(script:"echo $PATH:/usr/local/bin", returnStdout:true).trim()
-        AWS_REGION = "your-region"
-        AWS_ACCOUNT_ID=sh(script:'export PATH="$PATH:/usr/local/bin" && aws sts get-caller-identity --query Account --output text', returnStdout:true).trim()
-        ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        APP_REPO_NAME = "project-repo/todo-app"
+        DOCKER_CONFIG = "${WORKSPACE}/.local/docker-auth"
     }
-
-    stages{
-        stage('Create Infrastructure for the App') {
+    stages {
+        stage('Checkout') {
             steps {
-                echo 'Creating Infrastructure for the App on AWS Cloud'
-                sh 'terraform init'
-                sh 'terraform apply --auto-approve'
-            }
-        }
-
-        stage('Create ECR Repo') {
-            steps {
-                echo 'Creating ECR Repo for App'
-                sh '''
-                aws ecr describe-repositories --region ${AWS_REGION} --repository-name ${APP_REPO_NAME} || \
-                aws ecr create-repository \
-                  --repository-name ${APP_REPO_NAME} \
-                  --image-scanning-configuration scanOnPush=false \
-                  --image-tag-mutability MUTABLE \
-                  --region ${AWS_REGION}
-                '''
-            }
-        }       
-
-        stage('Build App Docker Image') {
-            steps {
-                echo 'Building App Image'
+                checkout scm
                 script {
-                    env.NODE_IP = sh(script: 'terraform output -raw node_public_ip', returnStdout:true).trim()
-                    env.DB_HOST = sh(script: 'terraform output -raw postgre_private_ip', returnStdout:true).trim()
-                    env.DB_NAME = sh(script: 'aws --region=${AWS_REGION} ssm get-parameters --names "db_name" --query "Parameters[*].{Value:Value}" --output text', returnStdout:true).trim()
-                    env.DB_PASSWORD = sh(script: 'aws --region=${AWS_REGION} ssm get-parameters --names "db_password" --query "Parameters[*].{Value:Value}" --output text', returnStdout:true).trim()
+                    if (!(params.REGISTRY ==~ /[a-zA-Z0-9][a-zA-Z0-9.:-]*/)) { error('Invalid registry') }
+                    if (!(params.IMAGE_REPOSITORY ==~ /[a-z0-9][a-z0-9._\/-]*/)) { error('Invalid repository') }
+                    if (params.DEPLOY_TAG && !(params.DEPLOY_TAG ==~ /[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}/)) { error('Invalid tag') }
+                    env.RELEASE_TAG = params.DEPLOY_TAG ?: "${BUILD_NUMBER}-${sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()}"
+                    env.APP_IMAGE = "${params.REGISTRY}/${params.IMAGE_REPOSITORY}:${env.RELEASE_TAG}"
+                    env.REGISTRY = params.REGISTRY
+                    env.LOCAL_IMAGE = "devops-todo-build:${BUILD_NUMBER}"
                 }
-                sh 'echo ${DB_HOST}'
-                sh 'echo ${NODE_IP}'
-                sh 'echo ${DB_NAME}'
-                sh 'echo ${DB_PASSWORD}'
-                sh 'envsubst < node-env-template > ./nodejs/server/.env'
-                sh 'cat ./nodejs/server/.env'
-                sh 'envsubst < react-env-template > ./react/client/.env'
-                sh 'cat ./react/client/.env'
-                sh 'docker build --force-rm -t "$ECR_REGISTRY/$APP_REPO_NAME:postgre" -f ./postgresql/dockerfile-postgresql .'
-                sh 'docker build --force-rm -t "$ECR_REGISTRY/$APP_REPO_NAME:nodejs" -f ./nodejs/dockerfile-nodejs .'
-                sh 'docker build --force-rm -t "$ECR_REGISTRY/$APP_REPO_NAME:react" -f ./react/dockerfile-react .'
-                sh 'docker image ls'
+                echo "Release image: ${env.APP_IMAGE}"
             }
         }
-
-        stage('Push Image to ECR Repo') {
+        stage('Install Dependencies') {
+            when { expression { !params.DEPLOY_TAG } }
             steps {
-                echo 'Pushing App Image to ECR Repo'
-                sh 'aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin "$ECR_REGISTRY"'
-                sh 'docker push "$ECR_REGISTRY/$APP_REPO_NAME:postgre"'
-                sh 'docker push "$ECR_REGISTRY/$APP_REPO_NAME:nodejs"'
-                sh 'docker push "$ECR_REGISTRY/$APP_REPO_NAME:react"'
+                sh 'npm ci --prefix nodejs/server && npm ci --prefix react/client'
             }
         }
-
-        stage('wait the instance') {
+        stage('Test') {
+            when { expression { !params.DEPLOY_TAG } }
+            steps { sh 'npm test --prefix nodejs/server && npm test --prefix react/client' }
+        }
+        stage('Build') {
+            when { expression { !params.DEPLOY_TAG } }
+            steps { sh 'npm run build --prefix react/client' }
+        }
+        stage('Docker Build') {
+            when { expression { !params.DEPLOY_TAG } }
+            steps { sh 'docker build -t "$LOCAL_IMAGE" .' }
+        }
+        stage('Docker Tag') {
+            when { expression { !params.DEPLOY_TAG } }
+            steps { sh 'docker tag "$LOCAL_IMAGE" "$APP_IMAGE"' }
+        }
+        stage('Registry Login') {
             steps {
+                sh 'mkdir -p "$DOCKER_CONFIG" && chmod 700 "$DOCKER_CONFIG"'
                 script {
-                    echo 'Waiting for the instance'
-                    id = sh(script: 'aws ec2 describe-instances --filters Name=tag-value,Values=ansible_postgresql Name=instance-state-name,Values=running --query Reservations[*].Instances[*].[InstanceId] --output text',  returnStdout:true).trim()
-                    sh 'aws ec2 wait instance-status-ok --instance-ids $id'
+                    if (params.REGISTRY_CREDENTIALS_ID) {
+                        withCredentials([usernamePassword(credentialsId: params.REGISTRY_CREDENTIALS_ID, usernameVariable: 'REGISTRY_USER', passwordVariable: 'REGISTRY_PASSWORD')]) {
+                            sh '''
+                                set +x
+                                printf '%s' "$REGISTRY_PASSWORD" | docker login "$REGISTRY" --username "$REGISTRY_USER" --password-stdin
+                            '''
+                        }
+                    } else {
+                        echo 'Using unauthenticated registry (local lab only).'
+                    }
                 }
             }
         }
-
-        stage('Deploy the App') {
-            steps {
-                echo 'Deploy the App'
-                sh 'ls -l'
-                sh 'ansible --version'
-                sh 'sleep 180'
-                sh 'ansible-inventory --graph'
-                ansiblePlaybook credentialsId: 'your-key-pem-name', disableHostKeyChecking: true, installation: 'ansible', inventory: 'inventory_aws_ec2.yml', playbook: 'docker-project.yml'
-             }
+        stage('Docker Push') {
+            when { expression { !params.DEPLOY_TAG } }
+            steps { sh 'docker push "$APP_IMAGE"' }
         }
-
-        stage('Destroy the infrastructure'){
-            steps{
-                timeout(time:5, unit:'DAYS'){
-                    input message:'Approve terminate'
+        stage('Deploy with Ansible') {
+            steps {
+                withCredentials([string(credentialsId: 'todo-db-password', variable: 'DB_PASSWORD')]) {
+                    sh 'ansible-playbook --syntax-check ansible/deploy.yml'
+                    sh 'ansible-playbook ansible/deploy.yml'
                 }
-                sh """
-                docker image prune -af
-                terraform destroy --auto-approve
-                aws ecr delete-repository \
-                  --repository-name ${APP_REPO_NAME} \
-                  --region ${AWS_REGION} \
-                  --force
-                """
+            }
+        }
+        stage('Health Check') {
+            steps {
+                sh 'curl --fail --silent --show-error --retry 5 --retry-delay 3 http://todo-app:5000/health'
+                sh 'APP_URL=http://todo-app:5000 node scripts/smoke.mjs'
+                writeFile file: 'release.txt', text: "${env.APP_IMAGE}\n"
+                archiveArtifacts artifacts: 'release.txt', fingerprint: true
             }
         }
     }
-
-
     post {
         always {
-            echo 'Deleting all local images'
-            sh 'docker image prune -af'
+            sh 'rm -f "$DOCKER_CONFIG/config.json"'
         }
-
         failure {
-
-            echo 'Delete the Image Repository on ECR due to the Failure'
-            sh """
-                aws ecr delete-repository \
-                  --repository-name ${APP_REPO_NAME} \
-                  --region ${AWS_REGION}\
-                  --force
-                """
-            echo 'Deleting Terraform Stack due to the Failure'
-                sh 'terraform destroy --auto-approve'
+            echo 'Release failed. Inspect logs; redeploy the previous successful release tag if deployment had started. Rollback is manual.'
         }
-    }  
+    }
 }
