@@ -1,5 +1,11 @@
 # DevOps Todo Lab
 
+For the **CI-only Windows job** (checkout, install, test, build; no AWS or
+deployment), see [jenkins/CI-LOCAL.md](jenkins/CI-LOCAL.md). Its separate pipeline
+is `Jenkinsfile.ci`. The local installation is present, but Jenkins startup hit a
+Java loopback error in the app's execution environment; a successful Jenkins run
+has not yet been verified. The full deployment lab below remains available.
+
 ## Project Overview
 
 A small Jenkins → Docker registry → Ansible delivery lab around an existing React,

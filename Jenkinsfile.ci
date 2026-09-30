@@ -1,0 +1,55 @@
+pipeline {
+    agent any
+    options {
+        skipDefaultCheckout(true)
+        disableConcurrentBuilds()
+        timestamps()
+        timeout(time: 20, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/IshanDilhan/CI-CD_DevOps_Project.git'
+            }
+        }
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh 'npm ci --prefix nodejs/server && npm ci --prefix react/client'
+                    } else {
+                        bat 'call npm ci --prefix nodejs/server && call npm ci --prefix react/client'
+                    }
+                }
+            }
+        }
+        stage('Test') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh 'npm test --prefix nodejs/server && npm test --prefix react/client'
+                    } else {
+                        bat 'call npm test --prefix nodejs/server && call npm test --prefix react/client'
+                    }
+                }
+            }
+        }
+        stage('Build') {
+            steps {
+                script {
+                    if (isUnix()) {
+                        sh 'npm run build --prefix react/client'
+                    } else {
+                        bat 'call npm run build --prefix react/client'
+                    }
+                }
+                archiveArtifacts artifacts: 'react/client/build/**', fingerprint: true
+            }
+        }
+    }
+    post {
+        success { echo 'CI passed: dependencies installed, tests passed, frontend built and archived.' }
+        failure { echo 'CI failed. Inspect the first failed stage. No deployment was attempted.' }
+    }
+}
