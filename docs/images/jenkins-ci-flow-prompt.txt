@@ -1,0 +1,13 @@
+Generated with the built-in image generation tool.
+
+Create a polished educational flowchart infographic image for a beginner explaining their actual Jenkins CI project in an interview. Landscape layout, very legible typography, white background, navy text, green completed steps, blue flow arrows, muted amber for future work. Title: "Jenkins CI: From Code to Build". Subtitle: "Current pipeline — build #1 succeeded". Main top section label "CURRENT: CI ONLY". Show a clear left-to-right sequence of six numbered cards with simple meaningful icons and arrows:
+1 "GitHub" secondary "Application source • main branch"
+2 "Jenkins" secondary "Manual: Build Now"
+3 "Checkout" secondary "Download committed source"
+4 "Install" secondary "npm ci • locked dependencies"
+5 "Test" secondary "4 backend tests + 1 UI test"
+6 "Build & Archive" secondary "Compile React • save artifacts"
+Under the last card show three small file icons labeled exactly "index.html", "app.js", "app.css".
+A thin explanatory strip below main flow: "Pipeline definition: Jenkinsfile.ci". Small note: "Backend tests use a stubbed database."
+Then a strongly separated bottom section with dashed amber border and heading "NEXT: RUN THE WEBSITE — NOT PART OF THIS CI JOB". Show a dashed arrow from archived files to a group labelled "Express serves React + API"; this group connects bidirectionally to "PostgreSQL"; an arrow from Express group leads to a browser icon labelled "Website in browser". Include a prominent plain-language takeaway in bottom footer: "Build creates files. Deployment starts the application."
+This is a shareable visual explanation, not a screenshot of the Jenkins UI. Maintain technical accuracy: current job performs no Docker build, no AWS deployment, no automatic GitHub trigger; never show those as completed. No fictitious test results beyond screenshot's successful build and known five tests. Keep labels short, font large, generous spacing, consistent aligned cards. Do not include extra tools or technologies.
